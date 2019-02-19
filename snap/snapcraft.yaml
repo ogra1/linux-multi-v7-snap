@@ -1,0 +1,53 @@
+name: linux-multi-v7
+adopt-info: kernel
+summary: The Ubuntu generic Linux kernel built with multi_v7_defconfig
+description: This Ubuntu generic Linux kernel built for the armhf architecture
+    using the multi_v7_defconfig
+grade: stable
+confinement: strict
+type: kernel
+
+architectures:
+  - build-on: armhf
+    run-on: armhf
+
+parts:
+  firmware:
+    plugin: nil
+    source: git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
+    source-depth: 1
+    override-build: |
+      mkdir -p $SNAPCRAFT_PART_INSTALL/firmware
+      cp -av ./* $SNAPCRAFT_PART_INSTALL/firmware/
+      # fix for nanopi-neo-air wlan
+      cp -av $SNAPCRAFT_PART_INSTALL/firmware/brcm/brcmfmac43430-sdio.AP6212.txt \
+        $SNAPCRAFT_PART_INSTALL/firmware/brcm/brcmfmac43430-sdio.txt
+  kernel:
+    plugin: kernel
+    source: git://kernel.ubuntu.com/ubuntu/ubuntu-bionic.git
+    source-type: git
+    source-depth: 1
+    source-tag: Ubuntu-4.15.0-45.48
+    kdefconfig: [multi_v7_defconfig, snappy/generic.config, snappy/security.config, snappy/systemd.config, snappy/snappy.config, snappy/containers.config]
+    kconfigs:
+      - CONFIG_RTL8723BS=m
+      - CONFIG_ROCKCHIP_SARADC=m
+    override-pull: |
+      snapcraftctl pull
+      set -e
+      echo "applying snappy configs patches"
+      git apply -v ../../../patches/configs.patch
+      git apply -v ../../../patches/tinker-fixes.patch
+      echo "setting version to $(git tag|sed 's/^Ubuntu-//')"
+      snapcraftctl set-version "$(git tag|sed 's/^Ubuntu-//')"
+    override-build: |
+      cp debian/scripts/retpoline-extract-one \
+        $SNAPCRAFT_PART_BUILD/scripts/ubuntu-retpoline-extract-one
+      snapcraftctl build
+    kernel-with-firmware: false
+    build-packages:
+      - cpio
+      - libssl-dev
+      - on amd64 to armhf:
+        - gcc-arm-linux-gnueabihf:amd64
+    after: [ firmware ]

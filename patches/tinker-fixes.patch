@@ -1,0 +1,481 @@
+diff --git a/arch/arm/boot/dts/rk3288-tinker.dts b/arch/arm/boot/dts/rk3288-tinker.dts
+index 346b0d8..300034e 100644
+--- a/arch/arm/boot/dts/rk3288-tinker.dts
++++ b/arch/arm/boot/dts/rk3288-tinker.dts
+@@ -44,16 +44,29 @@
+ 
+ #include "rk3288.dtsi"
+ #include <dt-bindings/input/input.h>
++#include <dt-bindings/clock/rockchip,rk808.h>
+ 
+ / {
+ 	model = "Rockchip RK3288 Tinker Board";
+ 	compatible = "asus,rk3288-tinker", "rockchip,rk3288";
+ 
+-	memory {
++	memory@0 {
+ 		reg = <0x0 0x0 0x0 0x80000000>;
+ 		device_type = "memory";
+ 	};
+ 
++	/* Since wlan-platdata do NOT exist in this kernel,
++	   I don't know if the 'compatible' part is really
++	   necessary... */
++	wireless-wlan {
++		compatible = "wlan-platdata";
++		rockchip,grf = <&grf>;
++		wifi_chip_type = "8723bs";
++		sdio_vref = <1800>;
++		WIFI,host_wake_irq = <&gpio4 30 GPIO_ACTIVE_HIGH>;
++		status = "okay";
++	};
++
+ 	ext_gmac: external-gmac-clock {
+ 		compatible = "fixed-clock";
+ 		#clock-cells = <0>;
+@@ -134,6 +147,24 @@
+ 		startup-delay-us = <100000>;
+ 		vin-supply = <&vcc_io>;
+ 	};
++
++	/* This is essential to get SDIO devices working.
++	   The Wifi depends on SDIO ! */
++	sdio_pwrseq: sdio-pwrseq {
++		compatible = "mmc-pwrseq-simple";
++		clocks = <&rk808 RK808_CLKOUT1>;
++		clock-names = "ext_clock";
++		pinctrl-names = "default";
++		pinctrl-0 = <&chip_enable_h>, <&wifi_enable_h>;
++
++		/*
++		 * On the module itself this is one of these (depending
++		 * on the actual card populated):
++		 * - SDIO_RESET_L_WL_REG_ON
++		 * - PDN (power down when low)
++		 */
++		reset-gpios = <&gpio4 RK_PD4 GPIO_ACTIVE_LOW>, <&gpio4 RK_PD3 GPIO_ACTIVE_LOW>;
++	};
+ };
+ 
+ &cpu0 {
+@@ -202,7 +233,7 @@
+ 				regulator-always-on;
+ 				regulator-boot-on;
+ 				regulator-min-microvolt = <750000>;
+-				regulator-max-microvolt = <1350000>;
++				regulator-max-microvolt = <1450000>;
+ 				regulator-name = "vdd_arm";
+ 				regulator-ramp-delay = <6000>;
+ 				regulator-state-mem {
+@@ -292,6 +323,8 @@
+ 			};
+ 
+ 			vccio_sd: LDO_REG5 {
++                                regulator-always-on;
++                                regulator-boot-on;
+ 				regulator-min-microvolt = <1800000>;
+ 				regulator-max-microvolt = <3300000>;
+ 				regulator-name = "vccio_sd";
+@@ -338,7 +371,6 @@
+ 			};
+ 
+ 			vcc33_sd: SWITCH_REG1 {
+-				regulator-always-on;
+ 				regulator-boot-on;
+ 				regulator-name = "vcc33_sd";
+ 				regulator-state-mem {
+@@ -358,8 +390,24 @@
+ 	};
+ };
+ 
++&i2c1 {
++	status = "okay";
++};
++
+ &i2c2 {
+ 	status = "okay";
++	eeprom:m24c08@50 {
++		compatible = "at,24c08";
++		reg = <0x50>;
++	};
++};
++
++&i2c3 {
++	status = "okay";
++};
++
++&i2c4 {
++	status = "okay";
+ };
+ 
+ &i2c5 {
+@@ -371,9 +419,46 @@
+ 	status = "okay";
+ };
+ 
+-&io_domains {
++&spi2 {
++	status = "okay";
++	max-freq = <50000000>;
++	spidev@0 {
++		compatible = "rockchip,spi_tinker";
++		reg = <0>;
++		spi-max-frequency = <50000000>;
++		spi-cpha = <1>;
++	};
++	spidev@1 {
++		compatible = "rockchip,spi_tinker";
++		reg = <1>;
++		spi-max-frequency = <50000000>;
++		spi-cpha = <1>;
++	};
++};
++
++&sdio0 {
+ 	status = "okay";
++	clock-frequency = <50000000>;
++	clock-freq-min-max = <200000 50000000>;
++	bus-width = <4>;
++	cap-sd-highspeed;
++	cap-sdio-irq;
++	disable-wp;
++	keep-power-in-suspend;
++	mmc-pwrseq = <&sdio_pwrseq>;
++	non-removable;
++	num-slots = <1>;
++	pinctrl-names = "default";
++	pinctrl-0 = <&sdio0_bus4 &sdio0_cmd &sdio0_clk>;
++	sd-uhs-sdr104;
++	supports-sdio;
++
++};
+ 
++&io_domains {
++	status = "okay";
++	rockchip,grf = <&grf>;
++	wifi-supply = <&vcc_18>;
+ 	sdcard-supply = <&vccio_sd>;
+ };
+ 
+@@ -422,6 +507,16 @@
+ 		};
+ 	};
+ 
++	sdio-pwrseq {
++		wifi_enable_h: wifienable-h {
++			rockchip,pins = <4 28 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++
++		chip_enable_h: chip-enable-h {
++			rockchip,pins = <4 27 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++	};
++
+ 	sdmmc {
+ 		sdmmc_bus4: sdmmc-bus4 {
+ 			rockchip,pins = <6 16 RK_FUNC_1 &pcfg_pull_up_drv_8ma>,
+@@ -453,6 +548,12 @@
+ 			rockchip,pins = <7 8 RK_FUNC_GPIO &pcfg_pull_none>;
+ 		};
+ 	};
++
++	wireless-bluetooth {
++		uart0_gpios: uart0-gpios {
++			rockchip,pins = <4 19 RK_FUNC_GPIO &pcfg_pull_none>;
++		};
++	};
+ };
+ 
+ &pwm0 {
+@@ -468,11 +569,16 @@
+ 	bus-width = <4>;
+ 	cap-mmc-highspeed;
+ 	cap-sd-highspeed;
++	sd-uhs-sdr12;
++	sd-uhs-sdr25;
++	sd-uhs-sdr50;
++	sd-uhs-sdr104;
+ 	card-detect-delay = <200>;
+ 	disable-wp;			/* wp not hooked up */
+ 	pinctrl-names = "default";
+ 	pinctrl-0 = <&sdmmc_clk &sdmmc_cmd &sdmmc_cd &sdmmc_bus4>;
+ 	status = "okay";
++	supports-sd;
+ 	vmmc-supply = <&vcc33_sd>;
+ 	vqmmc-supply = <&vccio_sd>;
+ };
+@@ -485,6 +591,8 @@
+ 
+ &uart0 {
+ 	status = "okay";
++	pinctrl-names = "default";
++	pinctrl-0 = <&uart0_xfer>, <&uart0_cts>;
+ };
+ 
+ &uart1 {
+diff --git a/arch/arm/boot/dts/rk3288.dtsi b/arch/arm/boot/dts/rk3288.dtsi
+index 354aff4..a3bbcac 100644
+--- a/arch/arm/boot/dts/rk3288.dtsi
++++ b/arch/arm/boot/dts/rk3288.dtsi
+@@ -236,6 +236,8 @@
+ 		clock-names = "biu", "ciu", "ciu-drive", "ciu-sample";
+ 		fifo-depth = <0x100>;
+ 		interrupts = <GIC_SPI 32 IRQ_TYPE_LEVEL_HIGH>;
++		#address-cells = <1>;
++		#size-cells = <0>;
+ 		reg = <0x0 0xff0c0000 0x0 0x4000>;
+ 		resets = <&cru SRST_MMC0>;
+ 		reset-names = "reset";
+@@ -250,6 +252,8 @@
+ 		clock-names = "biu", "ciu", "ciu-drive", "ciu-sample";
+ 		fifo-depth = <0x100>;
+ 		interrupts = <GIC_SPI 33 IRQ_TYPE_LEVEL_HIGH>;
++		#address-cells = <1>;
++		#size-cells = <0>;
+ 		reg = <0x0 0xff0d0000 0x0 0x4000>;
+ 		resets = <&cru SRST_SDIO0>;
+ 		reset-names = "reset";
+@@ -262,6 +266,8 @@
+ 		clocks = <&cru HCLK_SDIO1>, <&cru SCLK_SDIO1>,
+ 			 <&cru SCLK_SDIO1_DRV>, <&cru SCLK_SDIO1_SAMPLE>;
+ 		clock-names = "biu", "ciu", "ciu-drive", "ciu-sample";
++		#address-cells = <1>;
++		#size-cells = <0>;
+ 		fifo-depth = <0x100>;
+ 		interrupts = <GIC_SPI 34 IRQ_TYPE_LEVEL_HIGH>;
+ 		reg = <0x0 0xff0e0000 0x0 0x4000>;
+@@ -276,6 +282,8 @@
+ 		clocks = <&cru HCLK_EMMC>, <&cru SCLK_EMMC>,
+ 			 <&cru SCLK_EMMC_DRV>, <&cru SCLK_EMMC_SAMPLE>;
+ 		clock-names = "biu", "ciu", "ciu-drive", "ciu-sample";
++		#address-cells = <1>;
++		#size-cells = <0>;
+ 		fifo-depth = <0x100>;
+ 		interrupts = <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
+ 		reg = <0x0 0xff0f0000 0x0 0x4000>;
+@@ -334,7 +342,7 @@
+ 		dma-names = "tx", "rx";
+ 		interrupts = <GIC_SPI 46 IRQ_TYPE_LEVEL_HIGH>;
+ 		pinctrl-names = "default";
+-		pinctrl-0 = <&spi2_clk &spi2_tx &spi2_rx &spi2_cs0>;
++                pinctrl-0 = <&spi2_clk &spi2_tx &spi2_rx &spi2_cs0 &spi2_cs1>;
+ 		reg = <0x0 0xff130000 0x0 0x1000>;
+ 		#address-cells = <1>;
+ 		#size-cells = <0>;
+@@ -547,6 +555,7 @@
+ 		pinctrl-2 = <&otp_gpio>;
+ 		#thermal-sensor-cells = <1>;
+ 		rockchip,hw-tshut-temp = <95000>;
++                rockchip,grf = <&grf>;
+ 		status = "disabled";
+ 	};
+ 
+@@ -666,6 +675,7 @@
+ 		pinctrl-0 = <&pwm1_pin>;
+ 		clocks = <&cru PCLK_PWM>;
+ 		clock-names = "pwm";
++                rockchip,grf = <&grf>;
+ 		status = "disabled";
+ 	};
+ 
+@@ -677,6 +687,7 @@
+ 		pinctrl-0 = <&pwm2_pin>;
+ 		clocks = <&cru PCLK_PWM>;
+ 		clock-names = "pwm";
++                rockchip,grf = <&grf>;
+ 		status = "disabled";
+ 	};
+ 
+@@ -688,6 +699,7 @@
+ 		pinctrl-0 = <&pwm3_pin>;
+ 		clocks = <&cru PCLK_PWM>;
+ 		clock-names = "pwm";
++                rockchip,grf = <&grf>;
+ 		status = "disabled";
+ 	};
+ 
+@@ -909,7 +921,7 @@
+ 		status = "disabled";
+ 	};
+ 
+-	spdif: sound@ff88b0000 {
++	spdif: sound@ff8b0000 {
+ 		compatible = "rockchip,rk3288-spdif", "rockchip,rk3066-spdif";
+ 		reg = <0x0 0xff8b0000 0x0 0x10000>;
+ 		#sound-dai-cells = <0>;
+@@ -977,16 +989,18 @@
+ 		compatible = "rockchip,rk3288-rga";
+ 		reg = <0x0 0xff920000 0x0 0x180>;
+ 		interrupts = <GIC_SPI 18 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "rga";
+ 		clocks = <&cru ACLK_RGA>, <&cru HCLK_RGA>, <&cru SCLK_RGA>;
+ 		clock-names = "aclk", "hclk", "sclk";
+ 		power-domains = <&power RK3288_PD_VIO>;
+ 		resets = <&cru SRST_RGA_CORE>, <&cru SRST_RGA_AXI>, <&cru SRST_RGA_AHB>;
+ 		reset-names = "core", "axi", "ahb";
++		status = "disabled";
+ 	};
+ 
+ 	vopb: vop@ff930000 {
+ 		compatible = "rockchip,rk3288-vop";
+-		reg = <0x0 0xff930000 0x0 0x19c>;
++		reg = <0xff930000 0x19c>, <0xff931000 0x1000>;
+ 		interrupts = <GIC_SPI 15 IRQ_TYPE_LEVEL_HIGH>;
+ 		clocks = <&cru ACLK_VOP0>, <&cru DCLK_VOP0>, <&cru HCLK_VOP0>;
+ 		clock-names = "aclk_vop", "dclk_vop", "hclk_vop";
+@@ -1147,6 +1161,7 @@
+ 		interrupts = <GIC_SPI 98 IRQ_TYPE_LEVEL_HIGH>;
+ 		clocks = <&cru SCLK_EDP>, <&cru PCLK_EDP_CTRL>;
+ 		clock-names = "dp", "pclk";
++		power-domains = <&power RK3288_PD_VIO>;
+ 		phys = <&edp_phy>;
+ 		phy-names = "dp";
+ 		resets = <&cru SRST_EDP>;
+diff --git a/drivers/mmc/host/dw_mmc-rockchip.c b/drivers/mmc/host/dw_mmc-rockchip.c
+index 3392952..28afa1b 100644
+--- a/drivers/mmc/host/dw_mmc-rockchip.c
++++ b/drivers/mmc/host/dw_mmc-rockchip.c
+@@ -14,10 +14,12 @@
+ #include <linux/of_address.h>
+ #include <linux/mmc/slot-gpio.h>
+ #include <linux/pm_runtime.h>
++#include <linux/regulator/consumer.h>
+ #include <linux/slab.h>
+ 
+ #include "dw_mmc.h"
+ #include "dw_mmc-pltfm.h"
++#include "../core/core.h"
+ 
+ #define RK3288_CLKGEN_DIV       2
+ 
+@@ -366,6 +368,27 @@ static int dw_mci_rockchip_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
++static void dw_mci_rockchip_platfm_shutdown(struct platform_device *pdev)
++{
++	struct dw_mci *host = platform_get_drvdata(pdev);
++	struct mmc_host *mmc = host->slot->mmc;
++	int ret;
++
++	if(of_machine_is_compatible("asus,rk3288-tinker")){
++
++		mmc_power_off(mmc);
++
++		mdelay(20);
++
++		if (!IS_ERR(mmc->supply.vmmc))
++			ret = regulator_enable(mmc->supply.vmmc);
++
++		if (!IS_ERR(mmc->supply.vqmmc))
++			regulator_set_voltage(mmc->supply.vqmmc, 3000000, 3300000);
++	}
++
++}
++
+ static int dw_mci_rockchip_remove(struct platform_device *pdev)
+ {
+ 	pm_runtime_get_sync(&pdev->dev);
+@@ -386,6 +409,7 @@ static const struct dev_pm_ops dw_mci_rockchip_dev_pm_ops = {
+ static struct platform_driver dw_mci_rockchip_pltfm_driver = {
+ 	.probe		= dw_mci_rockchip_probe,
+ 	.remove		= dw_mci_rockchip_remove,
++	.shutdown	= dw_mci_rockchip_platfm_shutdown,
+ 	.driver		= {
+ 		.name		= "dwmmc_rockchip",
+ 		.of_match_table	= dw_mci_rockchip_match,
+diff --git a/drivers/mmc/host/dw_mmc.c b/drivers/mmc/host/dw_mmc.c
+index 8ad3ad5..df68afb 100644
+--- a/drivers/mmc/host/dw_mmc.c
++++ b/drivers/mmc/host/dw_mmc.c
+@@ -39,8 +39,10 @@
+ #include <linux/of.h>
+ #include <linux/of_gpio.h>
+ #include <linux/mmc/slot-gpio.h>
++#include <linux/reboot.h>
+ 
+ #include "dw_mmc.h"
++#include "../core/core.h"
+ 
+ /* Common flag combinations */
+ #define DW_MCI_DATA_ERROR_FLAGS	(SDMMC_INT_DRTO | SDMMC_INT_DCRC | \
+@@ -2788,6 +2790,33 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
+ 	return IRQ_HANDLED;
+ }
+ 
++struct dw_mci *mSdhost;
++
++void setmmcEmergency() {
++
++	struct mmc_host *mmc;
++	int ret;
++
++	if(of_machine_is_compatible("asus,rk3288-tinker")){
++
++		mmc = mSdhost->slot->mmc;
++
++		mmc_power_off(mmc);
++
++		mdelay(20);
++
++		if (!IS_ERR(mmc->supply.vmmc))  {
++			ret = regulator_enable(mmc->supply.vmmc);
++		}
++
++		if (!IS_ERR(mmc->supply.vqmmc))
++			regulator_set_voltage(mmc->supply.vqmmc, 3000000, 3300000);
++	}
++
++}
++
++EXPORT_SYMBOL(setmmcEmergency);
++
+ static int dw_mci_init_slot_caps(struct dw_mci_slot *slot)
+ {
+ 	struct dw_mci *host = slot->host;
+@@ -2864,6 +2893,9 @@ static int dw_mci_init_slot(struct dw_mci *host)
+ 		mmc->f_max = freq[1];
+ 	}
+ 
++	if (of_find_property(host->dev->of_node, "supports-sd", NULL))
++			mSdhost = host;
++
+ 	/*if there are external regulators, get them*/
+ 	ret = mmc_regulator_get_supply(mmc);
+ 	if (ret)
+diff --git a/drivers/spi/spidev.c b/drivers/spi/spidev.c
+index cda1071..a628747 100644
+--- a/drivers/spi/spidev.c
++++ b/drivers/spi/spidev.c
+@@ -669,6 +669,7 @@ static const struct of_device_id spidev_dt_ids[] = {
+ 	{ .compatible = "lineartechnology,ltc2488" },
+ 	{ .compatible = "ge,achc" },
+ 	{ .compatible = "semtech,sx1301" },
++	{ .compatible = "rockchip,spi_tinker" },
+ 	{},
+ };
+ MODULE_DEVICE_TABLE(of, spidev_dt_ids);
+diff --git a/include/linux/reboot.h b/include/linux/reboot.h
+index e63799a..6aad8b1 100644
+--- a/include/linux/reboot.h
++++ b/include/linux/reboot.h
+@@ -78,6 +78,7 @@ extern char poweroff_cmd[POWEROFF_CMD_PATH_LEN];
+ extern void orderly_poweroff(bool force);
+ extern void orderly_reboot(void);
+ 
++extern void setmmcEmergency(void);
+ /*
+  * Emergency restart, callable from an interrupt handler.
+  */
+diff --git a/kernel/reboot.c b/kernel/reboot.c
+index e4ced88..49c7c04 100644
+--- a/kernel/reboot.c
++++ b/kernel/reboot.c
+@@ -61,6 +61,7 @@ void (*pm_power_off_prepare)(void);
+ void emergency_restart(void)
+ {
+ 	kmsg_dump(KMSG_DUMP_EMERG);
++	setmmcEmergency();
+ 	machine_emergency_restart();
+ }
+ EXPORT_SYMBOL_GPL(emergency_restart);
