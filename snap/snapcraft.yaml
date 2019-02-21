@@ -32,7 +32,6 @@ parts:
     kconfigs:
       - CONFIG_RTL8723BS=m
       - CONFIG_ROCKCHIP_SARADC=m
-      - CONFIG_GPIO_SYSFS=Y
     override-pull: |
       snapcraftctl pull
       set -e
